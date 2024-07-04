@@ -8,7 +8,7 @@
     <meta name="viewport" content="width=device-width,minimum-scale=1">
     <meta name="description" content="Introduction I finally gave in to the FOMO of having my own blog. Things I like in blogs:
 No one can comment.
-Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I setup this blog!">
+Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I set up this blog!">
     <meta name="generator" content="Hugo 0.124.1">
     
     
@@ -38,7 +38,7 @@ Having my own blog was something that I had in my TODO list for quite a while. D
     <meta property="og:title" content="My First Blogpost: setting up my own blog" />
 <meta property="og:description" content="Introduction I finally gave in to the FOMO of having my own blog. Things I like in blogs:
 No one can comment.
-Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I setup this blog!" />
+Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I set up this blog!" />
 <meta property="og:type" content="article" />
 <meta property="og:url" content="http://localhost:1313/posts/my-first-post/" /><meta property="article:section" content="posts" />
 <meta property="article:published_time" content="2024-06-29T12:34:55+01:00" />
@@ -46,13 +46,13 @@ Having my own blog was something that I had in my TODO list for quite a while. D
 <meta itemprop="name" content="My First Blogpost: setting up my own blog">
 <meta itemprop="description" content="Introduction I finally gave in to the FOMO of having my own blog. Things I like in blogs:
 No one can comment.
-Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I setup this blog!"><meta itemprop="datePublished" content="2024-06-29T12:34:55+01:00" />
+Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I set up this blog!"><meta itemprop="datePublished" content="2024-06-29T12:34:55+01:00" />
 <meta itemprop="dateModified" content="2024-06-29T12:34:55+01:00" />
-<meta itemprop="wordCount" content="354">
+<meta itemprop="wordCount" content="474">
 <meta itemprop="keywords" content="" /><meta name="twitter:card" content="summary"/><meta name="twitter:title" content="My First Blogpost: setting up my own blog"/>
 <meta name="twitter:description" content="Introduction I finally gave in to the FOMO of having my own blog. Things I like in blogs:
 No one can comment.
-Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I setup this blog!"/>
+Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I set up this blog!"/>
 
 	
   </head>
@@ -129,11 +129,11 @@ Having my own blog was something that I had in my TODO list for quite a while. D
 <p>I finally gave in to the FOMO of having my own blog. Things I like in blogs:</p>
 <p>No one can comment.</p>
 <p>Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own.
-And because I am lazy, this first blog post is going to be about how I setup this blog!</p>
+And because I am lazy, this first blog post is going to be about how I set up this blog!</p>
 <p><img src="/images/spiderman.jpeg" alt="see what I did there?"></p>
 <h4 id="step-0">Step 0</h4>
 <p>First things first: I was wondering whether I should be hosting this in a cloud provider&rsquo;s object storage service (like AWS S3) but then
-I remembered something: I don&rsquo;t really like paying. Also, some cloud horror stories I come across every now and then (like <a href="https://www.reddit.com/r/webdev/comments/1b14bty/netlify_just_sent_me_a_104k_bill_for_a_simple/">this one</a>)
+I remembered something: I don&rsquo;t really like paying. Also, some cloud horror stories I come across sometimes (like <a href="https://www.reddit.com/r/webdev/comments/1b14bty/netlify_just_sent_me_a_104k_bill_for_a_simple/">this one</a>)
 make me extra cautious. Plus on the bright side, I would understand how things work better without having the comfortable cloud abstractions in place.</p>
 <h4 id="step-1">Step 1</h4>
 <p>So I bought a raspberry pi that I could use as a server. Which is also something I wanted to buy either way (or I was simply looking for an excuse to buy one).</p>
@@ -150,7 +150,16 @@ from my domain to my no-ip domain.</p>
 <h4 id="step-5">Step 5</h4>
 <p>Assign a static IP to my raspberry pi: In order to do that, I had to connect my raspberry pi to my router through an
 ethernet cable. Every ethernet device has a unique MAC address. So I opened up my router&rsquo;s settings and I assigned my rpi&rsquo;s MAC
-address a specific IP.</p>
+address a specific IP. Also known as a DHCP rule.</p>
+<h4 id="step-6">Step 6</h4>
+<p>Still in the router: add port forwarding rules. Redirect packets to specific ports from which your rpi will serve your html content.</p>
+<h4 id="step-7">Step 7</h4>
+<p>Sneaky step: make sure with your ISP that there is no carrier grade NAT sitting behind your router&rsquo;s IP.</p>
+<h4 id="step-8">Step 8</h4>
+<p>rpi: ssh into your rpi server and install nginx. Also execute certbot or acme commands in order to obtain your SSL/TLS certificate.
+Of course, you can automate this in 1000 different ways but this greatly depends on the time and effort you want to put.</p>
+<h4 id="step-9">Step 9</h4>
+<p>serve your application: start nginx and serve your html files. In my case I am using hugo as a static site generator</p>
 <ul class="pa0">
   
 </ul>
