@@ -1,0 +1,4 @@
+baseURL = 'https://johnmantios.fyi/'
+languageCode = 'en-us'
+title = 'John Mantios fyi'
+theme = 'ananke'
