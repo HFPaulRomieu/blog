@@ -2,17 +2,17 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>Posts on John Mantios fyi</title>
-    <link>http://localhost:1313/posts/</link>
+    <link>http://localhost:57773/posts/</link>
     <description>Recent content in Posts on John Mantios fyi</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <lastBuildDate>Sat, 29 Jun 2024 12:34:55 +0100</lastBuildDate>
-    <atom:link href="http://localhost:1313/posts/index.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="http://localhost:57773/posts/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>My First Blogpost: setting up my own blog</title>
-      <link>http://localhost:1313/posts/my-first-post/</link>
+      <link>http://localhost:57773/posts/my-first-post/</link>
       <pubDate>Sat, 29 Jun 2024 12:34:55 +0100</pubDate>
-      <guid>http://localhost:1313/posts/my-first-post/</guid>
+      <guid>http://localhost:57773/posts/my-first-post/</guid>
       <description>Introduction I finally gave in to the FOMO of having my own blog. Things I like in blogs:&#xA;No one can comment.&#xA;Having my own blog was something that I had in my TODO list for quite a while. Deciding on the content though is of course a task of its own. And because I am lazy, this first blog post is going to be about how I set up this blog!</description>
     </item>
   </channel>

@@ -54,3 +54,6 @@ Of course, you can automate this in 1000 different ways but this greatly depends
 
 #### Step 9
 serve your application: start nginx and serve your html files. In my case I am using hugo as a static site generator
+
+#### Overall flow
+[![image](/images/rpi_arch.png)](/images/rpi_arch.png)
