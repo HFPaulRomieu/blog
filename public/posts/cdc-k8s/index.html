@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    
+    <title>Change Data Capture, Debezium and dangerous database cleanups | John Mantios fyi</title>
+    <meta name="viewport" content="width=device-width,minimum-scale=1">
+    <meta name="description" content="Introduction I have been wondering for a while what my second blog post&rsquo;s topic would be about. Where would I get inspiration from?
+And then it dawned on me&hellip;
+I have an actual day job I can use for inspiration! I am going to write about the process of archiving data from a relational database in which I have enabled Change Data Capture through Debezium.
+Context Lately I have been developing a full stack application which is powered by a relational database.">
+    <meta name="generator" content="Hugo 0.124.1">
+    
+    
+    
+    
+      <meta name="robots" content="noindex, nofollow">
+    
+
+    
+<link rel="stylesheet" href="/ananke/css/main.min.css" >
+
+
+
+    
+
+    
+      
+
+    
+
+    
+
+    
+      <link rel="canonical" href="http://localhost:1313/posts/cdc-k8s/">
+    
+
+    <meta property="og:title" content="Change Data Capture, Debezium and dangerous database cleanups" />
+<meta property="og:description" content="Introduction I have been wondering for a while what my second blog post&rsquo;s topic would be about. Where would I get inspiration from?
+And then it dawned on me&hellip;
+I have an actual day job I can use for inspiration! I am going to write about the process of archiving data from a relational database in which I have enabled Change Data Capture through Debezium.
+Context Lately I have been developing a full stack application which is powered by a relational database." />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="http://localhost:1313/posts/cdc-k8s/" /><meta property="article:section" content="posts" />
+<meta property="article:published_time" content="2024-07-14T12:34:55+01:00" />
+<meta property="article:modified_time" content="2024-07-14T12:34:55+01:00" />
+<meta itemprop="name" content="Change Data Capture, Debezium and dangerous database cleanups">
+<meta itemprop="description" content="Introduction I have been wondering for a while what my second blog post&rsquo;s topic would be about. Where would I get inspiration from?
+And then it dawned on me&hellip;
+I have an actual day job I can use for inspiration! I am going to write about the process of archiving data from a relational database in which I have enabled Change Data Capture through Debezium.
+Context Lately I have been developing a full stack application which is powered by a relational database."><meta itemprop="datePublished" content="2024-07-14T12:34:55+01:00" />
+<meta itemprop="dateModified" content="2024-07-14T12:34:55+01:00" />
+<meta itemprop="wordCount" content="304">
+<meta itemprop="keywords" content="" /><meta name="twitter:card" content="summary"/><meta name="twitter:title" content="Change Data Capture, Debezium and dangerous database cleanups"/>
+<meta name="twitter:description" content="Introduction I have been wondering for a while what my second blog post&rsquo;s topic would be about. Where would I get inspiration from?
+And then it dawned on me&hellip;
+I have an actual day job I can use for inspiration! I am going to write about the process of archiving data from a relational database in which I have enabled Change Data Capture through Debezium.
+Context Lately I have been developing a full stack application which is powered by a relational database."/>
+
+	
+  </head>
+
+  <body class="ma0 avenir bg-near-white">
+
+    
+   
+  
+
+  <header>
+    <div class="bg-black">
+      <nav class="pv3 ph3 ph4-ns" role="navigation">
+  <div class="flex-l justify-between items-center center">
+    <a href="/" class="f3 fw2 hover-white no-underline white-90 dib">
+      
+        John Mantios fyi
+      
+    </a>
+    <div class="flex-l items-center">
+      
+
+      
+      
+<div class="ananke-socials">
+  
+</div>
+
+    </div>
+  </div>
+</nav>
+
+    </div>
+  </header>
+
+
+
+    <main class="pb7" role="main">
+      
+  
+  <article class="flex-l flex-wrap justify-between mw8 center ph3">
+    <header class="mt4 w-100">
+      <aside class="instapaper_ignoref b helvetica tracked ttu">
+          
+        Posts
+      </aside>
+      
+
+
+
+
+
+
+
+
+
+
+  <div id="sharing" class="mt3 ananke-socials">
+    
+  </div>
+
+
+      <h1 class="f1 athelas mt3 mb1">Change Data Capture, Debezium and dangerous database cleanups</h1>
+      
+      
+      
+      <time class="f6 mv4 dib tracked" datetime="2024-07-14T12:34:55+01:00">July 14, 2024</time>
+      
+
+      
+      
+    </header>
+    <div class="nested-copy-line-height lh-copy serif f4 nested-links mid-gray pr4-l w-two-thirds-l"><h2 id="introduction">Introduction</h2>
+<p>I have been wondering for a while what my second blog post&rsquo;s topic would be about. Where would I get inspiration from?</p>
+<p>And then it dawned on me&hellip;</p>
+<p>I have an actual day job I can use for inspiration!
+<img src="/images/captain_obvious.gif" alt="captain obvious"></p>
+<p>I am going to write about the process of archiving data from a relational database in which I have enabled Change Data Capture through Debezium.</p>
+<h2 id="context">Context</h2>
+<p>Lately I have been developing a full stack application which is powered by a relational database. One of the hard requirements
+of the application was to visualise the business metrics on a dashboard <strong>in real time</strong>.</p>
+<p>If you ask any stakeholder how fresh they want their data they will 99.99% answer real-time fresh. Although this has become
+an actual meme in the real world, in my case I could not avoid it as the application itself is time critical and the fresher the data
+the more errors the end user would avoid.</p>
+<p>But if I have one advice for other engineers, this would be to <strong>always challenge a request for real-time data</strong>
+<img src="/images/real_time_meme.jpeg" alt="real time meme"></p>
+<h2 id="the-problem">The problem</h2>
+<p>Moving past the funny memes, I had to come up with an architecture that would provide both dashboards with real time data
+and also somehow take the burden off from the application&rsquo;s operational database. We don&rsquo;t want to perform CRUD database operations
+and at the same time calculate aggregations over the same tables. That would slow things down for both operations
+and the dashboards users in the long run.</p>
+<h2 id="the-proposed-solution">The proposed solution</h2>
+<p>Although this problem can be probably (or partially) solved by using an RDS cluster (e.g. AWS aurora) that will have write and read replicas,
+I preferred to use Kafka as a middleware instead</p>
+<p>Enter Change Data Capture: this is a high level design of what I came up with
+<a href="/images/cdc.png"><img src="/images/cdc.png" alt="cdc"></a></p>
+<p>To be continued&hellip;</p>
+<ul class="pa0">
+  
+</ul>
+<div class="mt6 instapaper_ignoref">
+      
+      
+      </div>
+    </div>
+
+    <aside class="w-30-l mt6-l">
+
+
+
+
+</aside>
+
+  </article>
+
+    </main>
+    <footer class="bg-black bottom-0 w-100 pa3" role="contentinfo">
+  <div class="flex justify-between">
+  <a class="f4 fw4 hover-white no-underline white-70 dn dib-ns pv2 ph3" href="http://localhost:1313/" >
+    &copy;  John Mantios fyi 2024 
+  </a>
+    <div>
+<div class="ananke-socials">
+  
+</div>
+</div>
+  </div>
+</footer>
+
+  </body>
+</html>

@@ -6,8 +6,15 @@
     <description>Recent content on John Mantios fyi</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Sat, 29 Jun 2024 12:34:55 +0100</lastBuildDate>
+    <lastBuildDate>Sun, 14 Jul 2024 12:34:55 +0100</lastBuildDate>
     <atom:link href="http://localhost:1313/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Change Data Capture, Debezium and dangerous database cleanups</title>
+      <link>http://localhost:1313/posts/cdc-k8s/</link>
+      <pubDate>Sun, 14 Jul 2024 12:34:55 +0100</pubDate>
+      <guid>http://localhost:1313/posts/cdc-k8s/</guid>
+      <description>Introduction I have been wondering for a while what my second blog post&amp;rsquo;s topic would be about. Where would I get inspiration from?&#xA;And then it dawned on me&amp;hellip;&#xA;I have an actual day job I can use for inspiration! I am going to write about the process of archiving data from a relational database in which I have enabled Change Data Capture through Debezium.&#xA;Context Lately I have been developing a full stack application which is powered by a relational database.</description>
+    </item>
     <item>
       <title>My First Blogpost: setting up my own blog</title>
       <link>http://localhost:1313/posts/my-first-post/</link>
