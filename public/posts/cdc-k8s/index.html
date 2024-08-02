@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en-us">
-  <head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=63723&amp;path=livereload" data-no-instant defer></script>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
     
@@ -33,7 +33,7 @@ Context Lately I have been developing a full stack application which is powered 
     
 
     
-      <link rel="canonical" href="http://localhost:1313/posts/cdc-k8s/">
+      <link rel="canonical" href="http://localhost:63723/posts/cdc-k8s/">
     
 
     <meta property="og:title" content="Change Data Capture, Debezium and dangerous database cleanups" />
@@ -42,7 +42,7 @@ And then it dawned on me&hellip;
 I have an actual day job I can use for inspiration! I am going to write about the process of archiving data from a relational database in which I have enabled Change Data Capture through Debezium.
 Context Lately I have been developing a full stack application which is powered by a relational database." />
 <meta property="og:type" content="article" />
-<meta property="og:url" content="http://localhost:1313/posts/cdc-k8s/" /><meta property="article:section" content="posts" />
+<meta property="og:url" content="http://localhost:63723/posts/cdc-k8s/" /><meta property="article:section" content="posts" />
 <meta property="article:published_time" content="2024-07-14T12:34:55+01:00" />
 <meta property="article:modified_time" content="2024-07-14T12:34:55+01:00" />
 <meta itemprop="name" content="Change Data Capture, Debezium and dangerous database cleanups">
@@ -51,7 +51,7 @@ And then it dawned on me&hellip;
 I have an actual day job I can use for inspiration! I am going to write about the process of archiving data from a relational database in which I have enabled Change Data Capture through Debezium.
 Context Lately I have been developing a full stack application which is powered by a relational database."><meta itemprop="datePublished" content="2024-07-14T12:34:55+01:00" />
 <meta itemprop="dateModified" content="2024-07-14T12:34:55+01:00" />
-<meta itemprop="wordCount" content="304">
+<meta itemprop="wordCount" content="1312">
 <meta itemprop="keywords" content="" /><meta name="twitter:card" content="summary"/><meta name="twitter:title" content="Change Data Capture, Debezium and dangerous database cleanups"/>
 <meta name="twitter:description" content="Introduction I have been wondering for a while what my second blog post&rsquo;s topic would be about. Where would I get inspiration from?
 And then it dawned on me&hellip;
@@ -153,7 +153,199 @@ and the dashboards users in the long run.</p>
 I preferred to use Kafka as a middleware instead</p>
 <p>Enter Change Data Capture: this is a high level design of what I came up with
 <a href="/images/cdc.png"><img src="/images/cdc.png" alt="cdc"></a></p>
-<p>To be continued&hellip;</p>
+<p>This is fairly straightforward: a debezium connector captures row-level changes in the database and produces kafka events
+in a kafka topic. Then anyone who wants to visualise that data just has to consume them, or in this case here, use a source connector
+like benthos, persist them in a database and then use the right database plugin for Grafana to execute the SQL queries of choice.</p>
+<p>So far so good: users create data during the application&rsquo;s operations, we visualise them in Grafana and everyone is happy.</p>
+<h2 id="deleting-data-as-part-of-the-normal-operations">Deleting data as part of the normal operations</h2>
+<p>But what happens if the application user deletes some data as part of normal operations? How will that be reflected in the visualisations?</p>
+<p>To avoid showing deleted data in the dashboards, before the data land into a kafka, I wrote a small go program (kafka consumer and producer) that essentially
+checks debezium&rsquo;s payload and if the &ldquo;after&rdquo; field is null then I add to the kafka event a &ldquo;isDeleted&rdquo; boolean flag set to true.
+Subsequently, in the SQL that powers the dashboard I exclude such events with</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">SELECT</span> ... <span style="color:#66d9ef">FROM</span> <span style="color:#66d9ef">table</span> <span style="color:#66d9ef">WHERE</span> isDeleted<span style="color:#f92672">=</span><span style="color:#66d9ef">false</span>
+</span></span></code></pre></div><p>Someone would perhaps wonder &ldquo;and why didn&rsquo;t you apply slowly changing dimensions type 2 in your operational database&rdquo;.
+I guess I want to be miserable! But I also wanted to handle this on the kafka layer, maybe as an experiment.</p>
+<h2 id="archiving-data">Archiving data</h2>
+<p>In order to archive data in the long term, I have used a kafka source connector that sinks the kafka events to an object storage service.
+Since this happens at every given moment, we don&rsquo;t have to worry about archiving the database data periodically.</p>
+<p>But we still need to clean up the database from stale data. If we delete the data though, that small go program will suddenly flag
+everything as deleted, and then, at the analytical layer, an analyst could get confused, thinking that everything got deleted
+during operations.</p>
+<p>How are we going to solve this? We are just going to stop debezium, perform the archival and then resume it.</p>
+<h2 id="stopping-debezium-temporarily">Stopping debezium temporarily</h2>
+<p>It turns out that there is not an SQL way to stop debezium (I wish there was something similar to a heartbeat table in which you would
+insert a record with a boolean flag and that would stop WAL watching. Maybe a cool future debezium feature?). The only way
+we can achieve that is to pause the whole connector.</p>
+<p>Luckily in my case, the connector is deployed in kubernetes using strimzi. If there is one great thing about k8s resources
+is that you can interact with them easily with REST API calls.</p>
+<p>So the task is clear: schedule a cron job that will pause the connector, execute the archival and then resume the connector.</p>
+<h2 id="k8s-cron-job">K8s cron job</h2>
+<p>Although it is always tempting to create an airflow DAG for such things, I chose to schedule the job in kubernetes.
+This is more performant in the sense that the whole application is already deployed in kubernetes so creating a cron job that would
+access the same resources would require minimal effort. Also, in the end it would be faster because all the resources of interest along
+with the connector run in the same namespace.</p>
+<p>Essentially we need to execute the following:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>kubectl patch kafkaconnector <span style="color:#f92672">{</span>k8s_strimzi_resource<span style="color:#f92672">}</span> --type<span style="color:#f92672">=</span>merge -p<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;{&#34;spec&#34;:{&#34;pause&#34;: true}}&#39;</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-sql" data-lang="sql"><span style="display:flex;"><span><span style="color:#66d9ef">DELETE</span> <span style="color:#66d9ef">FROM</span> <span style="color:#66d9ef">schema</span>.<span style="color:#66d9ef">table</span> <span style="color:#66d9ef">WHERE</span> created_at <span style="color:#f92672">&lt;</span> X
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>kubectl patch kafkaconnector <span style="color:#f92672">{</span>k8s_strimzi_resource<span style="color:#f92672">}</span> --type<span style="color:#f92672">=</span>merge -p<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;{&#34;spec&#34;:{&#34;pause&#34;: false}}&#39;</span>
+</span></span></code></pre></div><p>Let&rsquo;s see how that code would look like in go&hellip;</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">import</span> (
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;context&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;encoding/json&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">v1</span> <span style="color:#e6db74">&#34;k8s.io/apimachinery/pkg/apis/meta/v1&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/apimachinery/pkg/runtime/schema&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/apimachinery/pkg/types&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/client-go/dynamic&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/client-go/rest&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/client-go/util/retry&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;log&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;time&#34;</span>
+</span></span><span style="display:flex;"><span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">Namespace</span> = <span style="color:#e6db74">&#34;your_namespace&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">KafkaConnectorName</span> = <span style="color:#e6db74">&#34;your_kafka_connector_name&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">Group</span> = <span style="color:#e6db74">&#34;kafka.strimzi.io&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">Version</span> = <span style="color:#e6db74">&#34;your_version&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">Resource</span> = <span style="color:#e6db74">&#34;kafkaconnectors&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">PatchKafkaConnector</span>(<span style="color:#a6e22e">dynamicClient</span> <span style="color:#a6e22e">dynamic</span>.<span style="color:#a6e22e">Interface</span>, <span style="color:#a6e22e">gvr</span> <span style="color:#a6e22e">schema</span>.<span style="color:#a6e22e">GroupVersionResource</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">condition</span> <span style="color:#66d9ef">bool</span>) <span style="color:#66d9ef">error</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">patch</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#66d9ef">interface</span>{}{
+</span></span><span style="display:flex;"><span>		<span style="color:#e6db74">&#34;spec&#34;</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#66d9ef">interface</span>{}{
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;pause&#34;</span>: <span style="color:#a6e22e">condition</span>,
+</span></span><span style="display:flex;"><span>		},
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">patchBytes</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">json</span>.<span style="color:#a6e22e">Marshal</span>(<span style="color:#a6e22e">patch</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">retryErr</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">retry</span>.<span style="color:#a6e22e">RetryOnConflict</span>(<span style="color:#a6e22e">retry</span>.<span style="color:#a6e22e">DefaultRetry</span>, <span style="color:#66d9ef">func</span>() <span style="color:#66d9ef">error</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">updateErr</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dynamicClient</span>.<span style="color:#a6e22e">Resource</span>(<span style="color:#a6e22e">gvr</span>).<span style="color:#a6e22e">Namespace</span>(<span style="color:#a6e22e">Namespace</span>).<span style="color:#a6e22e">Patch</span>(<span style="color:#a6e22e">ctx</span>, <span style="color:#a6e22e">KafkaConnectorName</span>, <span style="color:#a6e22e">types</span>.<span style="color:#a6e22e">MergePatchType</span>, <span style="color:#a6e22e">patchBytes</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">PatchOptions</span>{})
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">updateErr</span>
+</span></span><span style="display:flex;"><span>	})
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">retryErr</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;KafkaConnector %s patched successfully to %t \n&#34;</span>, <span style="color:#a6e22e">KafkaConnectorName</span>, <span style="color:#a6e22e">condition</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Background</span>()
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">config</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">rest</span>.<span style="color:#a6e22e">InClusterConfig</span>()
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;Failed to create dynamic client: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">clientset</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dynamic</span>.<span style="color:#a6e22e">NewForConfig</span>(<span style="color:#a6e22e">config</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;Failed to create dynamic client: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">gvr</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">schema</span>.<span style="color:#a6e22e">GroupVersionResource</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Group</span>:    <span style="color:#a6e22e">Group</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Version</span>:  <span style="color:#a6e22e">Version</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Resource</span>: <span style="color:#a6e22e">Resource</span>,
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">PatchKafkaConnector</span>(<span style="color:#a6e22e">clientset</span>, <span style="color:#a6e22e">gvr</span>, <span style="color:#a6e22e">ctx</span>, <span style="color:#66d9ef">true</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;Failed to patch the connector: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">//your SQL cleanup query here
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">db</span>.<span style="color:#a6e22e">Models</span>.<span style="color:#a6e22e">Cleanup</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">PatchKafkaConnector</span>(<span style="color:#a6e22e">clientset</span>, <span style="color:#a6e22e">gvr</span>, <span style="color:#a6e22e">ctx</span>, <span style="color:#66d9ef">false</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;Failed to patch the connector: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="testing">Testing</h2>
+<p>We need to make sure that the code above works as expected. You can always test the SQL query
+with testcontainers or through setting up and tearing down a db image with the appropriate tables, data etc, so I am
+going to focus only on the k8s part.
+Luckily, the k8s community provides excellent interfaces (at least in go) and faker packages that allow me to mock my k8s cluster setup:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">package</span> <span style="color:#a6e22e">tests</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">import</span> (
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;context&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;cmd/cron/cleanup&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;internal/assert&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/apimachinery/pkg/apis/meta/v1&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/apimachinery/pkg/apis/meta/v1/unstructured&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/apimachinery/pkg/runtime/schema&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/client-go/dynamic&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/client-go/dynamic/fake&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;k8s.io/client-go/kubernetes/scheme&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;testing&#34;</span>
+</span></span><span style="display:flex;"><span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">setupMockKafkaConnector</span>() <span style="color:#a6e22e">dynamic</span>.<span style="color:#a6e22e">Interface</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">s</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">scheme</span>.<span style="color:#a6e22e">Scheme</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">gvr</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">schema</span>.<span style="color:#a6e22e">GroupVersionResource</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Group</span>:    <span style="color:#e6db74">&#34;kafka.strimzi.io&#34;</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Version</span>:  <span style="color:#e6db74">&#34;v1beta2&#34;</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Resource</span>: <span style="color:#e6db74">&#34;kafkaconnectors&#34;</span>,
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">dynamicClient</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fake</span>.<span style="color:#a6e22e">NewSimpleDynamicClient</span>(<span style="color:#a6e22e">s</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">obj</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">unstructured</span>.<span style="color:#a6e22e">Unstructured</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Object</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#66d9ef">interface</span>{}{
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;apiVersion&#34;</span>: <span style="color:#e6db74">&#34;kafka.strimzi.io/v1beta2&#34;</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;kind&#34;</span>:       <span style="color:#e6db74">&#34;KafkaConnector&#34;</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;metadata&#34;</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#66d9ef">interface</span>{}{
+</span></span><span style="display:flex;"><span>				<span style="color:#e6db74">&#34;name&#34;</span>:      <span style="color:#e6db74">&#34;your_kafka_connector&#34;</span>,
+</span></span><span style="display:flex;"><span>				<span style="color:#e6db74">&#34;namespace&#34;</span>: <span style="color:#e6db74">&#34;your_namespace&#34;</span>,
+</span></span><span style="display:flex;"><span>			},
+</span></span><span style="display:flex;"><span>			<span style="color:#e6db74">&#34;spec&#34;</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">string</span>]<span style="color:#66d9ef">interface</span>{}{
+</span></span><span style="display:flex;"><span>				<span style="color:#e6db74">&#34;class&#34;</span>: <span style="color:#e6db74">&#34;io.debezium.connector.postgresql.PostgresConnector&#34;</span>,
+</span></span><span style="display:flex;"><span>				<span style="color:#e6db74">&#34;pause&#34;</span>: <span style="color:#66d9ef">false</span>,
+</span></span><span style="display:flex;"><span>			},
+</span></span><span style="display:flex;"><span>		},
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dynamicClient</span>.<span style="color:#a6e22e">Resource</span>(<span style="color:#a6e22e">gvr</span>).<span style="color:#a6e22e">Namespace</span>(<span style="color:#a6e22e">cleanup</span>.<span style="color:#a6e22e">Namespace</span>).<span style="color:#a6e22e">Create</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">TODO</span>(), <span style="color:#a6e22e">obj</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">CreateOptions</span>{})
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Failed to create KafkaConnector: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">dynamicClient</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">TestPatchKafkaConnector</span>(<span style="color:#a6e22e">t</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">testing</span>.<span style="color:#a6e22e">T</span>) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">dynamicClient</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">setupMockKafkaConnector</span>()
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">gvr</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">schema</span>.<span style="color:#a6e22e">GroupVersionResource</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Group</span>:    <span style="color:#a6e22e">cleanup</span>.<span style="color:#a6e22e">Group</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Version</span>:  <span style="color:#a6e22e">cleanup</span>.<span style="color:#a6e22e">Version</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">Resource</span>: <span style="color:#a6e22e">cleanup</span>.<span style="color:#a6e22e">Resource</span>,
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">_</span> = <span style="color:#a6e22e">cleanup</span>.<span style="color:#a6e22e">PatchKafkaConnector</span>(<span style="color:#a6e22e">dynamicClient</span>, <span style="color:#a6e22e">gvr</span>, <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">TODO</span>(), <span style="color:#66d9ef">true</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">obj</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">dynamicClient</span>.<span style="color:#a6e22e">Resource</span>(<span style="color:#a6e22e">gvr</span>).<span style="color:#a6e22e">Namespace</span>(<span style="color:#a6e22e">cleanup</span>.<span style="color:#a6e22e">Namespace</span>).<span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">TODO</span>(), <span style="color:#a6e22e">cleanup</span>.<span style="color:#a6e22e">KafkaConnectorName</span>, <span style="color:#a6e22e">v1</span>.<span style="color:#a6e22e">GetOptions</span>{})
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;Failed to get KafkaConnector: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">pause</span>, <span style="color:#a6e22e">found</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">unstructured</span>.<span style="color:#a6e22e">NestedBool</span>(<span style="color:#a6e22e">obj</span>.<span style="color:#a6e22e">Object</span>, <span style="color:#e6db74">&#34;spec&#34;</span>, <span style="color:#e6db74">&#34;pause&#34;</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">||</span> !<span style="color:#a6e22e">found</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">Fatalf</span>(<span style="color:#e6db74">&#34;Failed to get &#39;pause&#39; field: %v&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">assert</span>.<span style="color:#a6e22e">Equal</span>(<span style="color:#a6e22e">t</span>, <span style="color:#a6e22e">pause</span>, <span style="color:#66d9ef">true</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>And that&rsquo;s it! Now we can safely run our code and cleanup the database.</p>
 <ul class="pa0">
   
 </ul>
@@ -175,7 +367,7 @@ I preferred to use Kafka as a middleware instead</p>
     </main>
     <footer class="bg-black bottom-0 w-100 pa3" role="contentinfo">
   <div class="flex justify-between">
-  <a class="f4 fw4 hover-white no-underline white-70 dn dib-ns pv2 ph3" href="http://localhost:1313/" >
+  <a class="f4 fw4 hover-white no-underline white-70 dn dib-ns pv2 ph3" href="http://localhost:63723/" >
     &copy;  John Mantios fyi 2024 
   </a>
     <div>
