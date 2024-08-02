@@ -2,20 +2,20 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
-    <loc>http://localhost:63723/posts/cdc-k8s/</loc>
+    <loc>http://localhost:64105/posts/cdc-k8s/</loc>
     <lastmod>2024-07-14T12:34:55+01:00</lastmod>
   </url><url>
-    <loc>http://localhost:63723/</loc>
+    <loc>http://localhost:64105/</loc>
     <lastmod>2024-07-14T12:34:55+01:00</lastmod>
   </url><url>
-    <loc>http://localhost:63723/posts/</loc>
+    <loc>http://localhost:64105/posts/</loc>
     <lastmod>2024-07-14T12:34:55+01:00</lastmod>
   </url><url>
-    <loc>http://localhost:63723/posts/my-first-post/</loc>
+    <loc>http://localhost:64105/posts/my-first-post/</loc>
     <lastmod>2024-06-29T12:34:55+01:00</lastmod>
   </url><url>
-    <loc>http://localhost:63723/categories/</loc>
+    <loc>http://localhost:64105/categories/</loc>
   </url><url>
-    <loc>http://localhost:63723/tags/</loc>
+    <loc>http://localhost:64105/tags/</loc>
   </url>
 </urlset>
