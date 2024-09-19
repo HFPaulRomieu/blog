@@ -28,28 +28,29 @@ So I bought a raspberry pi that I could use as a server. Which is also something
 Find a domain: johnmantios.fyi was a cheap option (not for long though...)
 
 #### Step 3
-Use a dynamic DNS service: because I am not paying my ISP for a static IP, I had to find a way to overcome this. I chose
+Use a dynamic DNS (Domain Name System) service: because I am not paying my ISP (Internet Service Provider) for a static IP, I had to find a way to overcome this. I chose
 a free service called no-ip which essentially points my router's dynamic IP address to a static hostname: no-ip checks
 every 5 minutes for changes to my router's IP address. If the latter changes, then no-ip updates the hostname I have chosen
 with the new IP address.
 
 #### Step 4
-Create a CNAME record: In the domain registrar from which I bought my domain, I added a CNAME record which forwards traffic
+Create a CNAME record (maps an alias domain name to another domain name): In the domain registrar from which I bought my domain, I added a CNAME record which forwards traffic
 from my domain to my no-ip domain.
 
 #### Step 5
 Assign a static IP to my raspberry pi: In order to do that, I had to connect my raspberry pi to my router through an
 ethernet cable. Every ethernet device has a unique MAC address. So I opened up my router's settings and I assigned my rpi's MAC
-address a specific IP. Also known as a DHCP rule.
+address a specific IP. Also known as a DHCP (Dynamic Host Configuration Protocol) rule.
 
 #### Step 6
 Still in the router: add port forwarding rules. Redirect packets to specific ports from which your rpi will serve your html content.
 
 #### Step 7
-Sneaky step: make sure with your ISP that there is no carrier grade NAT sitting behind your router's IP. 
+Sneaky step: make sure with your ISP that there is no CGNAT (carrier grade NAT) sitting behind your router's IP. In essence, it ensures that your router is getting a public IP address from 
+your ISP rather than a private IP behind CGNAT. If CGNAT is in use, it can block services like remote access or hosting servers, as your router won’t have a unique public IP to allow outside connections.
 
 #### Step 8 
-rpi: ssh into your rpi server and install nginx. Also execute certbot or acme commands in order to obtain your SSL/TLS certificate.
+rpi: ssh into your rpi server and install nginx (to host websites directly on the Raspberry Pi). Also execute certbot or acme commands in order to obtain your SSL/TLS certificate.
 Of course, you can automate this in 1000 different ways but this greatly depends on the time and effort you want to put.
 
 #### Step 9
